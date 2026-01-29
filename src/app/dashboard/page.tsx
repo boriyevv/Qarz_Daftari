@@ -12,6 +12,7 @@ import { DebtsListDraggable } from '@/src/components/debts/debts-list-draggable'
 import { DashboardStats } from '@/src/components/dashboard/dashboard-stats'
 import { Sheet, SheetContent } from '@/src/components/ui/sheet'
 
+
 interface Debt {
   id: string
   debtor_name: string
@@ -188,7 +189,7 @@ export default function DashboardPage() {
           ======================================== */}
       <div className="hidden lg:flex min-h-screen bg-slate-50">
         {/* Desktop Sidebar */}
-        <div className="w-80 border-r bg-white">
+        <div className="w-80 border-r bg-white h-screen sticky top-0">
           <FoldersSidebarResponsive
             activeFolder={activeFolder}
             onFolderChange={setActiveFolder}
@@ -196,7 +197,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Desktop Main Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-screen">
           {/* Desktop Header */}
           <header className="bg-white border-b sticky top-0 z-10 shadow-sm">
             <div className="px-6 py-4">
@@ -205,7 +206,7 @@ export default function DashboardPage() {
                   <h1 className="text-2xl font-bold">Dashboard</h1>
                   <p className="text-sm text-slate-600">{user.store_name}</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="hidden lg:flex items-center gap-3">
                   <Button onClick={() => setIsAddDebtOpen(true)}>
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -214,6 +215,11 @@ export default function DashboardPage() {
                   </Button>
                   <Button variant="outline" onClick={handleLogout}>
                     Chiqish
+
+                    <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+
                   </Button>
                 </div>
               </div>
@@ -232,7 +238,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Desktop Debts List */}
-          <div className="px-6 pb-6">
+          <div className="flex-1 px-6 pb-6">
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -244,11 +250,14 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Add Debt Modal (Shared) */}
+      {/* Add Debt Modal (Shared for both mobile and desktop) */}
       <AddDebtModal
         open={isAddDebtOpen}
         onOpenChange={setIsAddDebtOpen}
-        onSuccess={fetchDebts}
+        onSuccess={async () => {
+          fetchDebts()
+          setIsAddDebtOpen(false)
+        }}
       />
     </>
   )

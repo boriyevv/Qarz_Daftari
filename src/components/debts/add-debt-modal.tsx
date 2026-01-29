@@ -1,7 +1,7 @@
 // src/components/debts/add-debt-modal.tsx
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/src/components/ui/button'
 import { Input } from '@/src/components/ui/input'
 import { Label } from '@/src/components/ui/label'
@@ -13,7 +13,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/src/components/ui/dialog'
 import {
   Select,
@@ -24,24 +23,22 @@ import {
 } from '@/src/components/ui/select'
 import { Alert, AlertDescription } from '@/src/components/ui/alert'
 
+interface AddDebtModalProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSuccess: () => void
+}
+
 interface Folder {
   id: string
   name: string
   color: string
 }
 
-interface AddDebtModalProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSuccess: () => Promise<void>
-}
-
-export function AddDebtModal({ onSuccess }: AddDebtModalProps) {
-  const [open, setOpen] = useState(false)
+export function AddDebtModal({ open, onOpenChange, onSuccess }: AddDebtModalProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [folders, setFolders] = useState<Folder[]>([])
-
   const [formData, setFormData] = useState({
     debtor_name: '',
     debtor_phone: '',
@@ -51,24 +48,19 @@ export function AddDebtModal({ onSuccess }: AddDebtModalProps) {
     note: '',
   })
 
-  useEffect(() => {
-    if (open) {
-      fetchFolders()
-    }
-  }, [open])
+  // Fetch folders when modal opens
+useEffect(() => {
+  if (open) {
+    fetchFolders()
+  }
+}, [open])
 
   const fetchFolders = async () => {
     try {
       const response = await fetch('/api/folders')
       const data = await response.json()
-
       if (response.ok) {
         setFolders(data.folders || [])
-        // Set default folder
-        const defaultFolder = data.folders?.find((f: Folder) => f.name === 'Qarzlar')
-        if (defaultFolder) {
-          setFormData((prev) => ({ ...prev, folder_id: defaultFolder.id }))
-        }
       }
     } catch (error) {
       console.error('Folders fetch error:', error)
@@ -110,7 +102,7 @@ export function AddDebtModal({ onSuccess }: AddDebtModalProps) {
         return
       }
 
-      // Success
+      // Reset form
       setFormData({
         debtor_name: '',
         debtor_phone: '',
@@ -119,8 +111,10 @@ export function AddDebtModal({ onSuccess }: AddDebtModalProps) {
         folder_id: '',
         note: '',
       })
-      setOpen(false)
-      onSuccess?.()
+
+      // Close modal and refresh
+      onOpenChange(false)
+      onSuccess()
     } catch (error) {
       setError('Tarmoq xatosi')
     } finally {
@@ -129,17 +123,8 @@ export function AddDebtModal({ onSuccess }: AddDebtModalProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="gap-2">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Yangi Qarz
-        </Button>
-      </DialogTrigger>
-
-      <DialogContent className="max-w-md">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Yangi Qarz Qo'shish</DialogTitle>
           <DialogDescription>Qarzdor ma'lumotlarini kiriting</DialogDescription>
@@ -247,7 +232,12 @@ export function AddDebtModal({ onSuccess }: AddDebtModalProps) {
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => onOpenChange(false)}
+              disabled={loading}
+            >
               Bekor qilish
             </Button>
             <Button type="submit" disabled={loading}>

@@ -21,6 +21,23 @@ import {
   DropdownMenuTrigger,
 } from '@/src/components/ui/dropdown-menu'
 import { cn } from '@/src/lib/utills'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 interface Folder {
   id: string
@@ -46,6 +63,99 @@ const COLORS = [
   { name: 'Pushti', value: '#EC4899' },
 ]
 
+// Sortable Folder Item Component
+function SortableFolderItem({
+  folder,
+  isActive,
+  onClick,
+  onEdit,
+  onDelete,
+}: {
+  folder: Folder
+  isActive: boolean
+  onClick: () => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: folder.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'group flex items-center justify-between p-3 rounded-lg transition-colors',
+        isActive ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-50'
+      )}
+    >
+      {/* Drag Handle */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="cursor-move p-1 hover:bg-slate-200 rounded mr-2 touch-none"
+      >
+        <svg className="w-4 h-4 text-slate-400" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M7 2a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-3 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-3 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0z" />
+        </svg>
+      </div>
+
+      {/* Folder Content */}
+      <button
+        onClick={onClick}
+        className="flex-1 flex items-center gap-3 text-left"
+      >
+        <div
+          className="w-2 h-2 rounded-full"
+          style={{ backgroundColor: folder.color }}
+        />
+        <span className="font-medium">{folder.name}</span>
+      </button>
+
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        <Badge variant="secondary">{folder.debt_count || 0}</Badge>
+
+        {!folder.is_default && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-0 group-hover:opacity-100"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z" />
+                </svg>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onEdit}>
+                Tahrirlash
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDelete} className="text-red-600">
+                O'chirish
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function FoldersSidebarResponsive({
   activeFolder,
   onFolderChange,
@@ -56,12 +166,23 @@ export function FoldersSidebarResponsive({
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null)
-  const [draggedItem, setDraggedItem] = useState<string | null>(null)
   
   const [formData, setFormData] = useState({
     name: '',
     color: COLORS[0].value,
   })
+
+  // DND Kit sensors for touch and mouse
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px movement to activate
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
 
   useEffect(() => {
     fetchFolders()
@@ -72,13 +193,48 @@ export function FoldersSidebarResponsive({
       setLoading(true)
       const response = await fetch('/api/folders')
       const data = await response.json()
+      
       if (response.ok) {
-        setFolders(data.folders || [])
+        const folders = (data.folders || []).map((folder: any) => ({
+          ...folder,
+          debt_count: typeof folder.debt_count === 'number' ? folder.debt_count : 0,
+        }))
+        setFolders(folders)
       }
     } catch (error) {
       console.error('Folders fetch error:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (!over || active.id === over.id) {
+      return
+    }
+
+    const oldIndex = folders.findIndex((f) => f.id === active.id)
+    const newIndex = folders.findIndex((f) => f.id === over.id)
+
+    const newFolders = arrayMove(folders, oldIndex, newIndex)
+    setFolders(newFolders)
+
+    // Update order in backend
+    try {
+      await Promise.all(
+        newFolders.map((folder, index) =>
+          fetch(`/api/folders/${folder.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_index: index }),
+          })
+        )
+      )
+    } catch (error) {
+      console.error('Reorder error:', error)
+      fetchFolders() // Revert on error
     }
   }
 
@@ -155,54 +311,6 @@ export function FoldersSidebarResponsive({
     setIsEditOpen(true)
   }
 
-  // Drag and drop handlers
-  const handleDragStart = (folderId: string) => {
-    setDraggedItem(folderId)
-  }
-
-  const handleDragOver = (e: React.DragEvent, targetId: string) => {
-    e.preventDefault()
-    if (!draggedItem || draggedItem === targetId) return
-
-    const draggedIdx = folders.findIndex(f => f.id === draggedItem)
-    const targetIdx = folders.findIndex(f => f.id === targetId)
-
-    if (draggedIdx === -1 || targetIdx === -1) return
-
-    const newFolders = [...folders]
-    const [removed] = newFolders.splice(draggedIdx, 1)
-    newFolders.splice(targetIdx, 0, removed)
-
-    setFolders(newFolders)
-  }
-
-  const handleDragEnd = async () => {
-    if (!draggedItem) return
-
-    // Update order_index in backend
-    const updates = folders.map((folder, index) => ({
-      id: folder.id,
-      order_index: index,
-    }))
-
-    try {
-      await Promise.all(
-        updates.map(({ id, order_index }) =>
-          fetch(`/api/folders/${id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_index }),
-          })
-        )
-      )
-    } catch (error) {
-      console.error('Reorder error:', error)
-      fetchFolders() // Revert on error
-    }
-
-    setDraggedItem(null)
-  }
-
   const totalDebts = folders.reduce((sum, folder) => sum + folder.debt_count, 0)
 
   return (
@@ -212,9 +320,9 @@ export function FoldersSidebarResponsive({
         <h2 className="text-lg font-semibold">Folderlar</h2>
         {onClose && (
           <Button variant="ghost" size="icon" onClick={onClose}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {/* <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            </svg> */}
           </Button>
         )}
       </div>
@@ -229,83 +337,44 @@ export function FoldersSidebarResponsive({
           }}
           className={cn(
             'w-full flex items-center justify-between p-3 rounded-lg transition-colors',
-            activeFolder === 'all'
-              ? 'bg-blue-50 text-blue-600'
-              : 'hover:bg-slate-50'
+            activeFolder === 'all' ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-50'
           )}
         >
           <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-slate-400"></div>
+            <div className="w-2 h-2 rounded-full bg-slate-400" />
             <span className="font-medium">Barcha qarzlar</span>
           </div>
           <Badge variant="secondary">{totalDebts}</Badge>
         </button>
 
-        {/* Folder Items */}
+        {/* Sortable Folders */}
         {loading ? (
           <div className="text-center py-8 text-slate-500">Yuklanmoqda...</div>
         ) : (
-          folders.map((folder) => (
-            <div
-              key={folder.id}
-              draggable
-              onDragStart={() => handleDragStart(folder.id)}
-              onDragOver={(e) => handleDragOver(e, folder.id)}
-              onDragEnd={handleDragEnd}
-              className={cn(
-                'group flex items-center justify-between p-3 rounded-lg transition-colors cursor-move',
-                activeFolder === folder.id
-                  ? 'bg-blue-50 text-blue-600'
-                  : 'hover:bg-slate-50',
-                draggedItem === folder.id && 'opacity-50'
-              )}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={folders.map((f) => f.id)}
+              strategy={verticalListSortingStrategy}
             >
-              <button
-                onClick={() => {
-                  onFolderChange(folder.id)
-                  onClose?.()
-                }}
-                className="flex-1 flex items-center gap-3 text-left"
-              >
-                <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: folder.color }}
-                ></div>
-                <span className="font-medium">{folder.name}</span>
-              </button>
-
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary">{folder.debt_count}</Badge>
-
-                {!folder.is_default && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 opacity-0 group-hover:opacity-100"
-                      >
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
-                          <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z" />
-                        </svg>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openEditModal(folder)}>
-                        Tahrirlash
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => handleDeleteFolder(folder.id)}
-                        className="text-red-600"
-                      >
-                        O'chirish
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            </div>
-          ))
+              {folders.map((folder) => (
+                <SortableFolderItem
+                  key={folder.id}
+                  folder={folder}
+                  isActive={activeFolder === folder.id}
+                  onClick={() => {
+                    onFolderChange(folder.id)
+                    onClose?.()
+                  }}
+                  onEdit={() => openEditModal(folder)}
+                  onDelete={() => handleDeleteFolder(folder.id)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         )}
       </div>
 
@@ -323,7 +392,7 @@ export function FoldersSidebarResponsive({
         </Button>
       </div>
 
-      {/* Add Folder Dialog */}
+      {/* Dialogs (same as before) */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
         <DialogContent>
           <DialogHeader>
@@ -361,7 +430,7 @@ export function FoldersSidebarResponsive({
                       <div
                         className="w-4 h-4 rounded-full"
                         style={{ backgroundColor: color.value }}
-                      ></div>
+                      />
                       <span className="text-sm">{color.name}</span>
                     </div>
                   </button>
@@ -379,7 +448,6 @@ export function FoldersSidebarResponsive({
         </DialogContent>
       </Dialog>
 
-      {/* Edit Folder Dialog */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
         <DialogContent>
           <DialogHeader>
@@ -415,7 +483,7 @@ export function FoldersSidebarResponsive({
                       <div
                         className="w-4 h-4 rounded-full"
                         style={{ backgroundColor: color.value }}
-                      ></div>
+                      />
                       <span className="text-sm">{color.name}</span>
                     </div>
                   </button>

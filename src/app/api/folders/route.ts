@@ -1,68 +1,104 @@
 // src/app/api/folders/route.ts
-// GET - List all folders for current user
-// POST - Create new folder
-
 import { createClient } from '@/src/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 
-// GET - List folders
+const createFolderSchema = z.object({
+  name: z.string().min(1, 'Folder nomi kerak'),
+  color: z.string().default('#3B82F6'),
+})
+
 export async function GET() {
   try {
     const supabase = await createClient()
-    
     const { data: { user } } = await supabase.auth.getUser()
+
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
+    console.log('📁 Fetching folders for user:', user.id)
+
     // Get user profile
-    const { data: profile } = await supabase
+    let profile = null
+    
+    // Try auth_id first (email users)
+    const { data: authProfile } = await supabase
       .from('users')
       .select('id')
       .eq('auth_id', user.id)
       .single()
 
+    if (authProfile) {
+      profile = authProfile
+    } else if (user.phone) {
+      // Try phone (phone-only users)
+      const { data: phoneProfile } = await supabase
+        .from('users')
+        .select('id')
+        .eq('phone', user.phone)
+        .single()
+      
+      profile = phoneProfile
+    }
+
     if (!profile) {
+      console.error('❌ Profile not found for user:', user.id)
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
-    // Get folders with debt counts
-    const { data: folders, error } = await supabase
-      .from('folders')
-      .select(`
-        *,
-        debts:debts(count)
-      `)
-      .eq('user_id', profile.id)
-      .order('order_index', { ascending: true })
+    console.log('✅ Profile found:', profile.id)
 
-    if (error) {
-      console.error('Folders fetch error:', error)
-      return NextResponse.json({ error: 'Folders olishda xato' }, { status: 500 })
+    // Get folders
+    const { data: folders, error: foldersError } = await supabase
+      .from('folders')
+      .select('*')
+      .eq('user_id', profile.id)
+      .order('order_index')
+
+    if (foldersError) {
+      console.error('❌ Folders error:', foldersError)
+      return NextResponse.json({ error: 'Folders fetch failed' }, { status: 500 })
     }
 
-    return NextResponse.json({ folders })
+    console.log('📂 Found folders:', folders?.length || 0)
+
+    // Get debt counts for each folder
+    const foldersWithCounts = await Promise.all(
+      (folders || []).map(async (folder) => {
+        const { count, error: countError } = await supabase
+          .from('debts')
+          .select('id', { count: 'exact', head: true })
+          .eq('folder_id', folder.id)
+          .is('deleted_at', null)
+
+        if (countError) {
+          console.error('Count error for folder', folder.id, ':', countError)
+        }
+
+        console.log(`📊 Folder "${folder.name}" has ${count || 0} debts`)
+
+        return {
+          ...folder,
+          debt_count: count || 0,
+        }
+      })
+    )
+
+    return NextResponse.json({ folders: foldersWithCounts })
   } catch (error) {
-    console.error('Folders GET error:', error)
-    return NextResponse.json({ error: 'Server xatosi' }, { status: 500 })
+    console.error('❌ Folders API error:', error)
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
 }
-
-// POST - Create folder
-const createFolderSchema = z.object({
-  name: z.string().min(1, 'Nom kiritilmagan').max(100, 'Nom juda uzun'),
-  color: z.string().optional(),
-  icon: z.string().optional(),
-})
 
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
-    
     const { data: { user } } = await supabase.auth.getUser()
+
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
     const body = await request.json()
@@ -76,39 +112,53 @@ export async function POST(request: Request) {
     }
 
     // Get user profile
-    const { data: profile } = await supabase
+    let profile = null
+    
+    const { data: authProfile } = await supabase
       .from('users')
       .select('id, plan_type')
       .eq('auth_id', user.id)
       .single()
 
+    if (authProfile) {
+      profile = authProfile
+    } else if (user.phone) {
+      const { data: phoneProfile } = await supabase
+        .from('users')
+        .select('id, plan_type')
+        .eq('phone', user.phone)
+        .single()
+      
+      profile = phoneProfile
+    }
+
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
-    // Check plan limits
-    const { count } = await supabase
+    // Check folder limit based on plan
+    const { count: folderCount } = await supabase
       .from('folders')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', profile.id)
 
     const limits: Record<string, number> = {
-      free: 2,
-      plus: 10,
-      pro: 999,
+      FREE: 2,
+      PLUS: 10,
+      PRO: 999,
     }
 
-    const maxFolders = limits[profile.plan_type] || 2
+    const limit = limits[profile.plan_type] || 2
 
-    if (count && count >= maxFolders) {
+    if ((folderCount || 0) >= limit) {
       return NextResponse.json(
-        { error: `Maksimal ${maxFolders} ta folder yaratish mumkin. Tarifni yangilang.` },
-        { status: 403 }
+        { error: `Folder limiti oshdi (${limit} ta)` },
+        { status: 400 }
       )
     }
 
     // Get max order_index
-    const { data: lastFolder } = await supabase
+    const { data: maxFolder } = await supabase
       .from('folders')
       .select('order_index')
       .eq('user_id', profile.id)
@@ -116,30 +166,29 @@ export async function POST(request: Request) {
       .limit(1)
       .single()
 
-    const newOrderIndex = (lastFolder?.order_index || 0) + 1
+    const nextOrder = (maxFolder?.order_index || 0) + 1
 
     // Create folder
-    const { data: folder, error } = await supabase
+    const { data: folder, error: createError } = await supabase
       .from('folders')
       .insert({
         user_id: profile.id,
         name: result.data.name,
-        color: result.data.color || '#3B82F6',
-        icon: result.data.icon || 'folder',
-        order_index: newOrderIndex,
+        color: result.data.color,
+        order_index: nextOrder,
         is_default: false,
       })
       .select()
       .single()
 
-    if (error) {
-      console.error('Folder create error:', error)
+    if (createError) {
+      console.error('Create error:', createError)
       return NextResponse.json({ error: 'Folder yaratishda xato' }, { status: 500 })
     }
 
     return NextResponse.json({ folder })
   } catch (error) {
-    console.error('Folders POST error:', error)
-    return NextResponse.json({ error: 'Server xatosi' }, { status: 500 })
+    console.error('POST error:', error)
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
 }

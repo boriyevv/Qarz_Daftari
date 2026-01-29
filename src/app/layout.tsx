@@ -6,8 +6,20 @@ import { UserProvider } from '@/src/lib/contexts/user-context'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Qarz Daftari - Qarzlarni Boshqarish Tizimi',
+  title: 'Qarz Daftari',
   description: 'Professional qarzlar boshqarish platformasi',
+  manifest: '/manifest.json',
+  themeColor: '#3B82F6',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Qarz Daftari',
+  },
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+  },
 }
 
 export default function RootLayout({
